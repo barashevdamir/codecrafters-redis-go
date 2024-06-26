@@ -9,7 +9,8 @@ import (
 
 func main() {
 
-	fmt.Println("Logs from your program will appear here!")
+	queue := make(chan func())
+	go eventLoop(queue)
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
@@ -22,11 +23,11 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, queue)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, queue chan func()) {
 	buf := make([]byte, 1024)
 	defer conn.Close()
 	for {
@@ -37,7 +38,15 @@ func handleConnection(conn net.Conn) {
 			}
 			break
 		}
-		conn.Write([]byte("+PONG\r\n"))
+		queue <- func() {
+			conn.Write([]byte("+PONG\r\n"))
+		}
 
+	}
+}
+
+func eventLoop(queue chan func()) {
+	for task := range queue {
+		task()
 	}
 }

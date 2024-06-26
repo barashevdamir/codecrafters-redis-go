@@ -20,6 +20,8 @@ type Command struct {
 
 var commands = map[string]Command{}
 
+var stash = map[string]string{}
+
 func main() {
 	registerCommands()
 
@@ -44,6 +46,8 @@ func main() {
 func registerCommands() {
 	commands["PING"] = Command{Handler: handlePing}
 	commands["ECHO"] = Command{Handler: handleEcho}
+	commands["SET"] = Command{Handler: handleSet}
+	commands["GET"] = Command{Handler: handleGet}
 }
 
 func handleConnection(conn net.Conn, queue chan func()) {
@@ -86,12 +90,20 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	command = strings.TrimSpace(command)
 
 	var message string
-	if command == "ECHO" {
+	if command == "ECHO" || command == "GET" {
 		_, _ = reader.ReadString('\n')
 		message, _ = reader.ReadString('\n')
 		message = strings.TrimSpace(message)
+	} else if command == "SET" {
+		_, _ = reader.ReadString('\n')
+		message, _ = reader.ReadString('\n')
+		message = strings.TrimSpace(message)
+		_, _ = reader.ReadString('\n')
+		message2, _ := reader.ReadString('\n')
+		message2 = strings.TrimSpace(message2)
+		message = message + " " + message2
+		message = strings.TrimSpace(message)
 	}
-
 	cmd, ok := commands[strings.ToUpper(command)]
 	if !ok {
 		sendError(conn, "unknown command")
@@ -108,6 +120,25 @@ func handlePing(conn net.Conn, args []string) {
 func handleEcho(conn net.Conn, args []string) {
 	if len(args) > 0 {
 		conn.Write([]byte("$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n"))
+	} else {
+		sendError(conn, "no message")
+	}
+}
+
+func handleSet(conn net.Conn, args []string) {
+	if len(args) > 0 {
+		fmt.Println(args)
+		args = strings.Split(args[0], " ")
+		stash[args[0]] = args[1]
+		conn.Write([]byte("+OK\r\n"))
+	} else {
+		sendError(conn, "no message")
+	}
+}
+
+func handleGet(conn net.Conn, args []string) {
+	if len(args) > 0 {
+		conn.Write([]byte("$" + strconv.Itoa(len(stash[args[0]])) + "\r\n" + stash[args[0]] + "\r\n"))
 	} else {
 		sendError(conn, "no message")
 	}

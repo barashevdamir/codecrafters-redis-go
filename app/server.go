@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CommandFunc тип функции для обработки команды
@@ -85,32 +86,27 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		return
 	}
 
+	// Чтение команды
 	_, _ = reader.ReadString('\n')
 	command, _ := reader.ReadString('\n')
 	command = strings.TrimSpace(command)
 
-	var message string
-	if command == "ECHO" || command == "GET" {
+	// Чтение всех аргументов команды
+	var args []string
+	for i := 0; i < size-1; i++ {
 		_, _ = reader.ReadString('\n')
-		message, _ = reader.ReadString('\n')
-		message = strings.TrimSpace(message)
-	} else if command == "SET" {
-		_, _ = reader.ReadString('\n')
-		message, _ = reader.ReadString('\n')
-		message = strings.TrimSpace(message)
-		_, _ = reader.ReadString('\n')
-		message2, _ := reader.ReadString('\n')
-		message2 = strings.TrimSpace(message2)
-		message = message + " " + message2
-		message = strings.TrimSpace(message)
+		arg, _ := reader.ReadString('\n')
+		arg = strings.TrimSpace(arg)
+		args = append(args, arg)
 	}
+
 	cmd, ok := commands[strings.ToUpper(command)]
 	if !ok {
 		sendError(conn, "unknown command")
 		return
 	}
 
-	cmd.Handler(conn, []string{message})
+	cmd.Handler(conn, args)
 }
 
 func handlePing(conn net.Conn, args []string) {
@@ -126,19 +122,42 @@ func handleEcho(conn net.Conn, args []string) {
 }
 
 func handleSet(conn net.Conn, args []string) {
-	if len(args) > 0 {
-		fmt.Println(args)
-		args = strings.Split(args[0], " ")
-		stash[args[0]] = args[1]
-		conn.Write([]byte("+OK\r\n"))
-	} else {
-		sendError(conn, "no message")
+	if len(args) < 2 {
+		sendError(conn, "usage: SET key value [PX milliseconds]")
+		return
 	}
+
+	key, value := args[0], args[1]
+	expiration := 0
+
+	if len(args) > 3 && strings.ToUpper(args[2]) == "PX" {
+		var err error
+		expiration, err = strconv.Atoi(args[3])
+		if err != nil {
+			sendError(conn, "invalid expiration time")
+			return
+		}
+	}
+
+	stash[key] = value
+
+	if expiration > 0 {
+		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
+			delete(stash, key)
+		})
+	}
+
+	conn.Write([]byte("+OK\r\n"))
 }
 
 func handleGet(conn net.Conn, args []string) {
 	if len(args) > 0 {
-		conn.Write([]byte("$" + strconv.Itoa(len(stash[args[0]])) + "\r\n" + stash[args[0]] + "\r\n"))
+		_, ok := stash[args[0]]
+		if ok {
+			conn.Write([]byte("$" + strconv.Itoa(len(stash[args[0]])) + "\r\n" + stash[args[0]] + "\r\n"))
+		} else {
+			conn.Write([]byte("$-1\r\n"))
+		}
 	} else {
 		sendError(conn, "no message")
 	}

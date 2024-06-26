@@ -20,6 +20,13 @@ type Command struct {
 	Handler CommandFunc
 }
 
+type redisServer struct {
+	conn net.Conn
+	role string
+}
+
+var hosts = map[string]redisServer{}
+
 var commands = map[string]Command{}
 var stash = map[string]string{}
 var port string
@@ -35,11 +42,12 @@ func main() {
 
 	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Println("Failed to bind to port "+port+":", err.Error())
 		os.Exit(1)
 	}
 	for {
 		conn, err := l.Accept()
+		hosts[port] = redisServer{conn, "master"}
 		if err != nil {
 			fmt.Println("Error accepting connection:", err.Error())
 			os.Exit(1)
@@ -53,6 +61,7 @@ func registerCommands() {
 	commands["ECHO"] = Command{Handler: handleEcho}
 	commands["SET"] = Command{Handler: handleSet}
 	commands["GET"] = Command{Handler: handleGet}
+	commands["INFO"] = Command{Handler: handleInfo}
 }
 
 func handleConnection(conn net.Conn, queue chan func()) {
@@ -165,6 +174,11 @@ func handleGet(conn net.Conn, args []string) {
 	} else {
 		sendError(conn, "no message")
 	}
+}
+
+func handleInfo(conn net.Conn, args []string) {
+	roleStr := "role:" + hosts[port].role
+	conn.Write([]byte("$" + strconv.Itoa(len(roleStr)) + "\r\n" + roleStr + "\r\n"))
 }
 
 func sendError(conn net.Conn, msg string) {

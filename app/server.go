@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -20,8 +21,8 @@ type Command struct {
 }
 
 var commands = map[string]Command{}
-
 var stash = map[string]string{}
+var port string
 
 func main() {
 	registerCommands()
@@ -29,7 +30,10 @@ func main() {
 	queue := make(chan func())
 	go eventLoop(queue)
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	flag.StringVar(&port, "port", "6379", "port to listen on")
+	flag.Parse()
+
+	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)

@@ -44,29 +44,69 @@ func main() {
 	flag.StringVar(&replicaOf, "replicaof", "", "replica server")
 	flag.Parse()
 
-	l, err := net.Listen("tcp", ":"+port)
+	if replicaOf != "" {
+		replicaHostPort := strings.Split(replicaOf, " ")
+		if len(replicaHostPort) == 2 {
+			replicaHost := replicaHostPort[0]
+			replicaPort := replicaHostPort[1]
+			if _, exists := hosts[replicaPort]; !exists {
+				fmt.Println("Replica host not found in hosts, attempting to connect to master.")
+				go func() {
+					err := performHandshake(replicaHost, replicaPort)
+					if err != nil {
+						fmt.Println("Failed to perform handshake with master:", err.Error())
+						os.Exit(1)
+					}
+				}()
+			}
+		}
+	}
+
+	err := createServer(port, replicaOf, queue)
 	if err != nil {
-		fmt.Println("Failed to bind to port "+port+":", err.Error())
+		fmt.Println("Failed to create server:", err.Error())
 		os.Exit(1)
 	}
+}
+
+func createServer(port, replicaOf string, queue chan func()) error {
+	if _, exists := hosts[port]; exists {
+		fmt.Printf("Server on port %s already exists.\n", port)
+		return nil
+	}
+
+	l, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return fmt.Errorf("failed to bind to port %s: %v", port, err)
+	}
+
 	for {
 		conn, err := l.Accept()
+		if err != nil {
+			return fmt.Errorf("failed to accept connection: %v", err)
+		}
+		fmt.Printf("Accepted connection from %s\n", conn.RemoteAddr())
 		if replicaOf != "" {
 			hosts[port] = redisServer{conn, map[string]string{
 				"role":               "slave",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
 			}}
+			masterHost, masterPort := strings.Split(replicaOf, " ")[0], strings.Split(replicaOf, " ")[1]
+			go func() {
+				err = performHandshake(masterHost, masterPort)
+				if err != nil {
+					fmt.Println("Error during handshake:", err.Error())
+					return
+				}
+				fmt.Println("Handshake successful, continuing to accept requests.")
+			}()
 		} else {
 			hosts[port] = redisServer{conn, map[string]string{
 				"role":               "master",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
 			}}
-		}
-		if err != nil {
-			fmt.Println("Error accepting connection:", err.Error())
-			os.Exit(1)
 		}
 		go handleConnection(conn, queue)
 	}
@@ -81,8 +121,8 @@ func registerCommands() {
 }
 
 func handleConnection(conn net.Conn, queue chan func()) {
-	reader := bufio.NewReader(conn)
 	defer conn.Close()
+	reader := bufio.NewReader(conn)
 
 	for {
 		dataType, err := reader.ReadByte()
@@ -108,7 +148,6 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		sendError(conn, "bad array size")
 		return
 	}
-
 	size, err := strconv.Atoi(strings.TrimSpace(sizeStr))
 	if err != nil || size < 1 {
 		sendError(conn, "bad array size")
@@ -119,7 +158,6 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	_, _ = reader.ReadString('\n')
 	command, _ := reader.ReadString('\n')
 	command = strings.TrimSpace(command)
-
 	// Чтение всех аргументов команды
 	var args []string
 	for i := 0; i < size-1; i++ {
@@ -210,4 +248,36 @@ func eventLoop(queue chan func()) {
 		queue <- func() {}
 		<-queue
 	}
+}
+
+func performHandshake(masterHost, masterPort string) error {
+	address := net.JoinHostPort(masterHost, masterPort)
+	fmt.Println("Connecting to master:", address)
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return fmt.Errorf("failed to connect to master: %v", err)
+	}
+	defer conn.Close()
+
+	err = sendPing(conn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func sendPing(conn net.Conn) error {
+	_, err := conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	if err != nil {
+		return fmt.Errorf("failed to send PING: %v", err)
+	}
+
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read PING response: %v", err)
+	}
+
+	fmt.Println("Received PING response:", response)
+	return nil
 }

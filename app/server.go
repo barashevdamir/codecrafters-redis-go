@@ -29,7 +29,10 @@ var hosts = map[string]redisServer{}
 
 var commands = map[string]Command{}
 var stash = map[string]string{}
-var port string
+var (
+	port      string
+	replicaOf string
+)
 
 func main() {
 	registerCommands()
@@ -38,6 +41,7 @@ func main() {
 	go eventLoop(queue)
 
 	flag.StringVar(&port, "port", "6379", "port to listen on")
+	flag.StringVar(&replicaOf, "replicaof", "", "replica server")
 	flag.Parse()
 
 	l, err := net.Listen("tcp", ":"+port)
@@ -47,7 +51,11 @@ func main() {
 	}
 	for {
 		conn, err := l.Accept()
-		hosts[port] = redisServer{conn, "master"}
+		if replicaOf != "" {
+			hosts[port] = redisServer{conn, "slave"}
+		} else {
+			hosts[port] = redisServer{conn, "master"}
+		}
 		if err != nil {
 			fmt.Println("Error accepting connection:", err.Error())
 			os.Exit(1)

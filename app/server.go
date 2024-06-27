@@ -22,7 +22,7 @@ type Command struct {
 
 type redisServer struct {
 	conn net.Conn
-	role string
+	data map[string]string
 }
 
 var hosts = map[string]redisServer{}
@@ -52,9 +52,17 @@ func main() {
 	for {
 		conn, err := l.Accept()
 		if replicaOf != "" {
-			hosts[port] = redisServer{conn, "slave"}
+			hosts[port] = redisServer{conn, map[string]string{
+				"role":               "slave",
+				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				"master_repl_offset": "0",
+			}}
 		} else {
-			hosts[port] = redisServer{conn, "master"}
+			hosts[port] = redisServer{conn, map[string]string{
+				"role":               "master",
+				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				"master_repl_offset": "0",
+			}}
 		}
 		if err != nil {
 			fmt.Println("Error accepting connection:", err.Error())
@@ -185,8 +193,12 @@ func handleGet(conn net.Conn, args []string) {
 }
 
 func handleInfo(conn net.Conn, args []string) {
-	roleStr := "role:" + hosts[port].role
-	conn.Write([]byte("$" + strconv.Itoa(len(roleStr)) + "\r\n" + roleStr + "\r\n"))
+	var dataStr string
+	_data := hosts[port].data
+	for key, val := range _data {
+		dataStr += "$" + strconv.Itoa(len(key+val)) + "\r\n" + key + ":" + val + "\r\n"
+	}
+	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
 }
 
 func sendError(conn net.Conn, msg string) {

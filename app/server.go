@@ -167,17 +167,6 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	cmd.Handler(conn, args)
 }
 
-func sendError(conn net.Conn, msg string) {
-	conn.Write([]byte("-ERR " + msg + "\r\n"))
-}
-
-func eventLoop(queue chan func()) {
-	for {
-		queue <- func() {}
-		<-queue
-	}
-}
-
 func performHandshake(masterHost, masterPort string) error {
 	address := net.JoinHostPort(masterHost, masterPort)
 	fmt.Println("Connecting to master:", address)
@@ -218,53 +207,4 @@ func performHandshake(masterHost, masterPort string) error {
 	}()
 
 	return nil
-}
-
-func sendPing(conn net.Conn) error {
-	_, err := conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
-	if err != nil {
-		return fmt.Errorf("failed to send PING: %v", err)
-	}
-
-	response, err := readResponse(conn)
-	if err != nil {
-		return fmt.Errorf("failed to read PING response: %v", err)
-	}
-
-	fmt.Println("Received PING response:", response)
-	return nil
-}
-
-func sendReplConf(conn net.Conn, args []string) error {
-	_, err := conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
-	if err != nil {
-		return fmt.Errorf("failed to send REPLCONF: %v", err)
-	}
-	_, err = readResponse(conn)
-	if err != nil {
-		return fmt.Errorf("failed to read PING response: %v", err)
-	}
-	return nil
-}
-
-func sendPsync(conn net.Conn, args []string) error {
-	//_, err := conn.Write([]byte("*3\r\n$4\r\nPSYNC\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
-	_, err := conn.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"))
-	if err != nil {
-		return fmt.Errorf("failed to send PSYNC: %v", err)
-	}
-	_, err = readResponse(conn)
-	if err != nil {
-		return fmt.Errorf("failed to read PING response: %v", err)
-	}
-	return nil
-}
-
-func readResponse(conn net.Conn) (string, error) {
-	reader := bufio.NewReader(conn)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	return response, nil
 }

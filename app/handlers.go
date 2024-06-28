@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -86,4 +89,25 @@ func handleReplConf(conn net.Conn, args []string) {
 
 func handlePsync(conn net.Conn, args []string) {
 	conn.Write([]byte("+FULLRESYNC " + hosts[port].data["master_replid"] + " " + hosts[port].data["master_repl_offset"] + "\r\n"))
+	sendRDB(conn)
+}
+
+func sendRDB(conn net.Conn) error {
+	const emptyRDB = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+	rdbBytes, err := hex.DecodeString(emptyRDB)
+	if err != nil {
+		rdbBytes, err = base64.StdEncoding.DecodeString(emptyRDB)
+		if err != nil {
+			return fmt.Errorf("failed to decode empty RDB: %v", err)
+		}
+	}
+
+	_, err = conn.Write([]byte("$" + strconv.Itoa(len(rdbBytes)) + "\r\n" + string(rdbBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to send RDB length: %v", err)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to send RDB contents: %v", err)
+	}
+	return nil
 }

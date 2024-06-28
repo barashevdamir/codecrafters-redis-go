@@ -103,8 +103,6 @@ func handleReplConf(conn net.Conn, args []string) {
 
 func handlePsync(conn net.Conn, args []string) {
 	conn.Write([]byte("+FULLRESYNC " + hosts[port].data["master_replid"] + " " + hosts[port].data["master_repl_offset"] + "\r\n"))
-	psyncers = append(psyncers, conn)
-	fmt.Println("Added psyncer:", conn.RemoteAddr().String())
 	sendRDB(conn)
 }
 

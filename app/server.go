@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // CommandFunc тип функции для обработки команды
@@ -112,15 +111,6 @@ func createServer(port, replicaOf string, queue chan func()) error {
 	}
 }
 
-func registerCommands() {
-	commands["PING"] = Command{Handler: handlePing}
-	commands["ECHO"] = Command{Handler: handleEcho}
-	commands["SET"] = Command{Handler: handleSet}
-	commands["GET"] = Command{Handler: handleGet}
-	commands["INFO"] = Command{Handler: handleInfo}
-	commands["REPLCONF"] = Command{Handler: handleReplConf}
-}
-
 func handleConnection(conn net.Conn, queue chan func()) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
@@ -177,73 +167,6 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	cmd.Handler(conn, args)
 }
 
-func handlePing(conn net.Conn, args []string) {
-	conn.Write([]byte("+PONG\r\n"))
-}
-
-func handleEcho(conn net.Conn, args []string) {
-	if len(args) > 0 {
-		conn.Write([]byte("$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n"))
-	} else {
-		sendError(conn, "no message")
-	}
-}
-
-func handleSet(conn net.Conn, args []string) {
-	if len(args) < 2 {
-		sendError(conn, "usage: SET key value [PX milliseconds]")
-		return
-	}
-
-	key, value := args[0], args[1]
-	expiration := 0
-
-	if len(args) > 3 && strings.ToUpper(args[2]) == "PX" {
-		var err error
-		expiration, err = strconv.Atoi(args[3])
-		if err != nil {
-			sendError(conn, "invalid expiration time")
-			return
-		}
-	}
-
-	stash[key] = value
-
-	if expiration > 0 {
-		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
-			delete(stash, key)
-		})
-	}
-
-	conn.Write([]byte("+OK\r\n"))
-}
-
-func handleGet(conn net.Conn, args []string) {
-	if len(args) > 0 {
-		_, ok := stash[args[0]]
-		if ok {
-			conn.Write([]byte("$" + strconv.Itoa(len(stash[args[0]])) + "\r\n" + stash[args[0]] + "\r\n"))
-		} else {
-			conn.Write([]byte("$-1\r\n"))
-		}
-	} else {
-		sendError(conn, "no message")
-	}
-}
-
-func handleInfo(conn net.Conn, args []string) {
-	var dataStr string
-	_data := hosts[port].data
-	for key, val := range _data {
-		dataStr += "$" + strconv.Itoa(len(key+val)) + "\r\n" + key + ":" + val + "\r\n"
-	}
-	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
-}
-
-func handleReplConf(conn net.Conn, args []string) {
-	conn.Write([]byte("+OK\r\n"))
-}
-
 func sendError(conn net.Conn, msg string) {
 	conn.Write([]byte("-ERR " + msg + "\r\n"))
 }
@@ -275,6 +198,10 @@ func performHandshake(masterHost, masterPort string) error {
 	if err != nil {
 		return err
 	}
+	err = sendPsync(conn, []string{"?", "-1"})
+	if err != nil {
+		return err
+	}
 
 	go func() {
 		reader := bufio.NewReader(conn)
@@ -299,7 +226,7 @@ func sendPing(conn net.Conn) error {
 		return fmt.Errorf("failed to send PING: %v", err)
 	}
 
-	response, err := bufio.NewReader(conn).ReadString('\n')
+	response, err := readResponse(conn)
 	if err != nil {
 		return fmt.Errorf("failed to read PING response: %v", err)
 	}
@@ -313,5 +240,31 @@ func sendReplConf(conn net.Conn, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send REPLCONF: %v", err)
 	}
+	_, err = readResponse(conn)
+	if err != nil {
+		return fmt.Errorf("failed to read PING response: %v", err)
+	}
 	return nil
+}
+
+func sendPsync(conn net.Conn, args []string) error {
+	//_, err := conn.Write([]byte("*3\r\n$4\r\nPSYNC\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
+	_, err := conn.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"))
+	if err != nil {
+		return fmt.Errorf("failed to send PSYNC: %v", err)
+	}
+	_, err = readResponse(conn)
+	if err != nil {
+		return fmt.Errorf("failed to read PING response: %v", err)
+	}
+	return nil
+}
+
+func readResponse(conn net.Conn) (string, error) {
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return response, nil
 }

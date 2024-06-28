@@ -20,14 +20,14 @@ type Command struct {
 }
 
 type redisServer struct {
-	conn net.Conn
-	data map[string]string
+	conn  net.Conn
+	data  map[string]string
+	stash map[string]string
 }
 
 var hosts = map[string]redisServer{}
 
 var commands = map[string]Command{}
-var stash = map[string]string{}
 
 // Флаги
 var (
@@ -92,7 +92,7 @@ func createServer(port, replicaOf string, queue chan func()) error {
 				"role":               "slave",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
-			}}
+			}, map[string]string{}}
 			masterHost, masterPort := strings.Split(replicaOf, " ")[0], strings.Split(replicaOf, " ")[1]
 			go func() {
 				err = performHandshake(masterHost, masterPort)
@@ -107,7 +107,7 @@ func createServer(port, replicaOf string, queue chan func()) error {
 				"role":               "master",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
-			}}
+			}, map[string]string{}}
 		}
 		go handleConnection(conn, queue)
 	}

@@ -49,12 +49,11 @@ func handleSet(conn net.Conn, args []string) {
 			return
 		}
 	}
-
-	stash[key] = value
+	hosts[port].stash[key] = value
 
 	if expiration > 0 {
 		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
-			delete(stash, key)
+			delete(hosts[port].stash, key)
 		})
 	}
 	conn.Write([]byte("+OK\r\n"))
@@ -65,9 +64,9 @@ func handleSet(conn net.Conn, args []string) {
 
 func handleGet(conn net.Conn, args []string) {
 	if len(args) > 0 {
-		_, ok := stash[args[0]]
+		_, ok := hosts[port].stash[args[0]]
 		if ok {
-			conn.Write([]byte("$" + strconv.Itoa(len(stash[args[0]])) + "\r\n" + stash[args[0]] + "\r\n"))
+			conn.Write([]byte("$" + strconv.Itoa(len(hosts[port].stash[args[0]])) + "\r\n" + hosts[port].stash[args[0]] + "\r\n"))
 		} else {
 			conn.Write([]byte("$-1\r\n"))
 		}
@@ -93,7 +92,7 @@ func handleReplConf(conn net.Conn, args []string) {
 				"role":               "slave",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
-			}}
+			}, map[string]string{}}
 			fmt.Printf("Added new host with listening-port %s\n", port)
 		}
 	}

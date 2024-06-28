@@ -58,8 +58,8 @@ func handleSet(conn net.Conn, args []string) {
 		})
 	}
 
-	conn.Write([]byte("+OK\r\n"))
 	if hosts[port].data["role"] == "master" {
+		conn.Write([]byte("+OK\r\n"))
 		propagateCommand("SET", args, conn)
 	}
 }

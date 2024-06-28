@@ -50,7 +50,7 @@ func handleSet(conn net.Conn, args []string) {
 		}
 	}
 	hosts[port].stash[key] = value
-
+	fmt.Println("Stash:", hosts[port].stash, hosts[port].stash)
 	if expiration > 0 {
 		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
 			delete(hosts[port].stash, key)

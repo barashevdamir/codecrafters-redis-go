@@ -196,6 +196,7 @@ func performHandshake(masterHost, masterPort string) error {
 
 	go handleConnection(conn, nil)
 	if err != nil {
+		fmt.Println("Error handling connection:", err.Error())
 		return err
 	}
 

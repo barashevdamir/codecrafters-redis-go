@@ -194,19 +194,19 @@ func performHandshake(masterHost, masterPort string) error {
 		return err
 	}
 
-	go func() {
-		reader := bufio.NewReader(conn)
-		for {
-			data, err := reader.ReadString('\n')
-			if err != nil {
-				if err != io.EOF {
-					fmt.Println("Error reading from master:", err.Error())
-				}
-				break
-			}
-			fmt.Println("Received from master:", data)
-		}
-	}()
+	//go func() {
+	//	reader := bufio.NewReader(conn)
+	//	for {
+	//		data, err := reader.ReadString('\n')
+	//		if err != nil {
+	//			if err != io.EOF {
+	//				fmt.Println("Error reading from master:", err.Error())
+	//			}
+	//			break
+	//		}
+	//		fmt.Println("Received from master:", data)
+	//	}
+	//}()
 
 	return nil
 }

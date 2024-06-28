@@ -28,6 +28,8 @@ var hosts = map[string]redisServer{}
 
 var commands = map[string]Command{}
 var stash = map[string]string{}
+
+// Флаги
 var (
 	port      string
 	replicaOf string

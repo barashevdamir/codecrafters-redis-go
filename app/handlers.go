@@ -59,7 +59,9 @@ func handleSet(conn net.Conn, args []string) {
 	}
 
 	conn.Write([]byte("+OK\r\n"))
-	propagateCommand("SET", args, conn)
+	if hosts[port].data["role"] == "master" {
+		propagateCommand("SET", args, conn)
+	}
 }
 
 func handleGet(conn net.Conn, args []string) {
@@ -85,11 +87,24 @@ func handleInfo(conn net.Conn, args []string) {
 }
 
 func handleReplConf(conn net.Conn, args []string) {
+	if len(args) == 2 && args[0] == "listening-port" {
+		port := args[1]
+		if _, exists := hosts[port]; !exists {
+			hosts[port] = redisServer{conn, map[string]string{
+				"role":               "slave",
+				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				"master_repl_offset": "0",
+			}}
+			fmt.Printf("Added new host with listening-port %s\n", port)
+		}
+	}
 	conn.Write([]byte("+OK\r\n"))
 }
 
 func handlePsync(conn net.Conn, args []string) {
 	conn.Write([]byte("+FULLRESYNC " + hosts[port].data["master_replid"] + " " + hosts[port].data["master_repl_offset"] + "\r\n"))
+	psyncers = append(psyncers, conn)
+	fmt.Println("Added psyncer:", conn.RemoteAddr().String())
 	sendRDB(conn)
 }
 

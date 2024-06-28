@@ -118,6 +118,7 @@ func registerCommands() {
 	commands["SET"] = Command{Handler: handleSet}
 	commands["GET"] = Command{Handler: handleGet}
 	commands["INFO"] = Command{Handler: handleInfo}
+	commands["REPLCONF"] = Command{Handler: handleReplConf}
 }
 
 func handleConnection(conn net.Conn, queue chan func()) {
@@ -239,6 +240,10 @@ func handleInfo(conn net.Conn, args []string) {
 	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
 }
 
+func handleReplConf(conn net.Conn, args []string) {
+	conn.Write([]byte("+OK\r\n"))
+}
+
 func sendError(conn net.Conn, msg string) {
 	conn.Write([]byte("-ERR " + msg + "\r\n"))
 }
@@ -257,12 +262,33 @@ func performHandshake(masterHost, masterPort string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to master: %v", err)
 	}
-	defer conn.Close()
 
 	err = sendPing(conn)
 	if err != nil {
 		return err
 	}
+	err = sendReplConf(conn, []string{"listening-port", port})
+	if err != nil {
+		return err
+	}
+	err = sendReplConf(conn, []string{"capa", "psync2"})
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		reader := bufio.NewReader(conn)
+		for {
+			data, err := reader.ReadString('\n')
+			if err != nil {
+				if err != io.EOF {
+					fmt.Println("Error reading from master:", err.Error())
+				}
+				break
+			}
+			fmt.Println("Received from master:", data)
+		}
+	}()
 
 	return nil
 }
@@ -279,5 +305,13 @@ func sendPing(conn net.Conn) error {
 	}
 
 	fmt.Println("Received PING response:", response)
+	return nil
+}
+
+func sendReplConf(conn net.Conn, args []string) error {
+	_, err := conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
+	if err != nil {
+		return fmt.Errorf("failed to send REPLCONF: %v", err)
+	}
 	return nil
 }

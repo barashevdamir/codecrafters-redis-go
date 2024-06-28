@@ -59,6 +59,7 @@ func handleSet(conn net.Conn, args []string) {
 	}
 
 	conn.Write([]byte("+OK\r\n"))
+	propagateCommand("SET", args, conn)
 }
 
 func handleGet(conn net.Conn, args []string) {

@@ -163,7 +163,7 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		return
 	}
 	fmt.Println("Received command:", command, "with args:", args)
-	fmt.Println(cmd)
+	fmt.Println(ok)
 	cmd.Handler(conn, args)
 }
 

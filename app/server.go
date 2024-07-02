@@ -109,6 +109,7 @@ func createServer(port, replicaOf string, queue chan func()) error {
 				"master_repl_offset": "0",
 			}, map[string]string{}}
 		}
+
 		go handleConnection(conn, queue)
 	}
 }
@@ -118,7 +119,7 @@ func handleConnection(conn net.Conn, queue chan func()) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		dataType, err := reader.ReadByte()
+		_, err := reader.ReadByte()
 		if err != nil {
 			if err != io.EOF {
 				fmt.Println("Error reading:", err.Error())
@@ -126,12 +127,8 @@ func handleConnection(conn net.Conn, queue chan func()) {
 			break
 		}
 
-		if dataType == '*' {
-			handleArray(reader, conn, queue)
-		} else {
-			sendError(conn, "invalid data type")
-			continue
-		}
+		handleArray(reader, conn, queue)
+
 	}
 }
 
@@ -166,6 +163,7 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		return
 	}
 	fmt.Println("Received command:", command, "with args:", args)
+	fmt.Println(cmd)
 	cmd.Handler(conn, args)
 }
 

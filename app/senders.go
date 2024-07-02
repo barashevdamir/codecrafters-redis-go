@@ -44,6 +44,7 @@ func sendPsync(conn net.Conn, args []string) error {
 		return fmt.Errorf("failed to read PING response: %v", err)
 	}
 	fmt.Println("Received PSYNC response:", response)
+	conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n"))
 	return nil
 }
 

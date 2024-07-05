@@ -176,7 +176,7 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	offset += byteBulkStringLen(command, args)
 	fmt.Println("Executing command:", command)
 	queue <- func() {
-		cmd.Handler(conn, args)
+		go cmd.Handler(conn, args)
 	}
 }
 

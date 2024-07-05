@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // CommandFunc тип функции для обработки команды
@@ -27,24 +26,20 @@ type redisServer struct {
 	processedBytes int
 }
 
-var hosts = map[string]*redisServer{}
-
-var offset = 0
-
-var commands = map[string]Command{}
-
-// Флаги
 var (
 	port      string
 	replicaOf string
+	commands  = map[string]Command{}
+	offset    = 0
+	hosts     = map[string]*redisServer{}
 )
 
 func main() {
 	registerCommands()
 
-	queue := make(chan func())
-	inspection := make(chan []func())
-	go eventLoop(queue, inspection)
+	//queue := make(chan func())
+	//inspection := make(chan []func())
+	//go eventLoop(queue, inspection)
 
 	flag.StringVar(&port, "port", "6379", "port to listen on")
 	flag.StringVar(&replicaOf, "replicaof", "", "replica server")
@@ -59,7 +54,8 @@ func main() {
 
 				fmt.Println("Replica host not found in hosts, attempting to connect to master.")
 				go func() {
-					err := performHandshake(replicaHost, replicaPort, queue)
+					//err := performHandshake(replicaHost, replicaPort, queue)
+					err := performHandshake(replicaHost, replicaPort)
 					if err != nil {
 						fmt.Println("Failed to perform handshake with master:", err.Error())
 						os.Exit(1)
@@ -69,21 +65,23 @@ func main() {
 		}
 	}
 
-	err := createServer(port, replicaOf, queue)
+	//err := createServer(port, replicaOf, queue)
+	err := createServer(port, replicaOf)
 	if err != nil {
 		fmt.Println("Failed to create server:", err.Error())
 		os.Exit(1)
 	}
-	go func() {
-		for {
-			time.Sleep(time.Microsecond)
-			pending := <-inspection
-			fmt.Println("Pending commands: " + strconv.Itoa(len(pending)) + "\n")
-		}
-	}()
+	//go func() {
+	//	for {
+	//		time.Sleep(time.Microsecond)
+	//		pending := <-inspection
+	//		fmt.Println("Pending commands: " + strconv.Itoa(len(pending)) + "\n")
+	//	}
+	//}()
 }
 
-func createServer(port, replicaOf string, queue chan func()) error {
+// func createServer(port, replicaOf string, queue chan func()) error {
+func createServer(port, replicaOf string) error {
 
 	if _, exists := hosts[port]; exists {
 		fmt.Printf("Server on port %s already exists.\n", port)
@@ -109,7 +107,8 @@ func createServer(port, replicaOf string, queue chan func()) error {
 			}, map[string]string{}, 0}
 			masterHost, masterPort := strings.Split(replicaOf, " ")[0], strings.Split(replicaOf, " ")[1]
 			go func() {
-				err = performHandshake(masterHost, masterPort, queue)
+				//err = performHandshake(masterHost, masterPort, queue)
+				err = performHandshake(masterHost, masterPort)
 				if err != nil {
 					fmt.Println("Error during handshake:", err.Error())
 					return
@@ -124,11 +123,13 @@ func createServer(port, replicaOf string, queue chan func()) error {
 			}, map[string]string{}, 0}
 		}
 
-		go handleConnection(conn, queue)
+		//go handleConnection(conn, queue)
+		go handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn, queue chan func()) {
+// func handleConnection(conn net.Conn, queue chan func()) {
+func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 
@@ -141,10 +142,13 @@ func handleConnection(conn net.Conn, queue chan func()) {
 			break
 		}
 
-		handleArray(reader, conn, queue)
+		//handleArray(reader, conn, queue)
+		handleArray(reader, conn)
 	}
 }
-func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
+
+// func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
+func handleArray(reader *bufio.Reader, conn net.Conn) {
 	sizeStr, err := reader.ReadString('\n')
 	if err != nil {
 		sendError(conn, "bad array size")
@@ -175,12 +179,14 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	fmt.Printf("Adding to offset %d after %s by %s\n", byteBulkStringLen(command, args), command, conn.LocalAddr())
 	offset += byteBulkStringLen(command, args)
 	fmt.Println("Executing command:", command)
-	queue <- func() {
-		go cmd.Handler(conn, args)
-	}
+	go cmd.Handler(conn, args)
+	//queue <- func() {
+	//	go cmd.Handler(conn, args)
+	//}
 }
 
-func performHandshake(masterHost, masterPort string, queue chan func()) error {
+// func performHandshake(masterHost, masterPort string, queue chan func()) error {
+func performHandshake(masterHost, masterPort string) error {
 	address := net.JoinHostPort(masterHost, masterPort)
 	fmt.Println("Connecting to master:", address)
 	conn, err := net.Dial("tcp", address)
@@ -240,7 +246,8 @@ func performHandshake(masterHost, masterPort string, queue chan func()) error {
 	}
 
 	// Обработка соединения в отдельной горутине
-	go handleConnection(conn, queue)
+	//go handleConnection(conn, queue)
+	go handleConnection(conn)
 	if err != nil {
 		fmt.Println("Error handling connection:", err.Error())
 		return err

@@ -172,11 +172,11 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		sendError(conn, "unknown command")
 		return
 	}
-	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen(command, args), command)
+	fmt.Printf("Adding to offset %d after %s by %s\n", byteBulkStringLen(command, args), command, conn.LocalAddr())
 	offset += byteBulkStringLen(command, args)
 	fmt.Println("Executing command:", command)
 	queue <- func() {
-		go cmd.Handler(conn, args)
+		cmd.Handler(conn, args)
 	}
 }
 

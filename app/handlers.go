@@ -42,7 +42,7 @@ func handleEcho(conn net.Conn, args []string) {
 			server.processedBytes += byteBulkStringLen("ECHO", args)
 			return
 		}
-		fmt.Printf("Adding to offset %d\n", byteBulkStringLen("ECHO", args))
+		fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("ECHO", args), "ECHO")
 		offset += byteBulkStringLen("ECHO", args)
 		conn.Write([]byte("$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n"))
 	} else {
@@ -70,13 +70,13 @@ func handleSet(conn net.Conn, args []string) {
 		}
 	}
 	server.stash[key] = value
-
+	printHosts()
 	if expiration > 0 {
 		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
 			delete(server.stash, key)
 		})
 	}
-	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("SET", args))
+	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("SET", args), "SET")
 	offset += byteBulkStringLen("SET", args)
 	if server.data["role"] == "slave" {
 		server.processedBytes += byteBulkStringLen("SET", args)
@@ -91,6 +91,7 @@ func handleSet(conn net.Conn, args []string) {
 
 func handleGet(conn net.Conn, args []string) {
 	server, _ := hosts[port]
+	printHosts()
 	if len(args) > 0 {
 		_, ok := server.stash[args[0]]
 		if ok {
@@ -99,7 +100,7 @@ func handleGet(conn net.Conn, args []string) {
 			conn.Write([]byte("$-1\r\n"))
 		}
 	}
-	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("GET", args))
+	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("GET", args), "GET")
 	offset += byteBulkStringLen("GET", args)
 	if server.data["role"] == "slave" {
 		server.processedBytes += byteBulkStringLen("GET", args)
@@ -119,7 +120,7 @@ func handleInfo(conn net.Conn, args []string) {
 	}
 
 	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
-	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("INFO", args))
+	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("INFO", args), "INFO")
 	offset += byteBulkStringLen("INFO", args)
 	if server.data["role"] == "slave" {
 		server.processedBytes += byteBulkStringLen("INFO", args)

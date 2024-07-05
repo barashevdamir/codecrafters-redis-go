@@ -78,6 +78,7 @@ func printHosts() {
 	for port, server := range hosts {
 		fmt.Printf("Port: %s\n", port)
 		fmt.Printf("Role: %s\n", server.data["role"])
+		fmt.Printf("Stash: %s\n", server.stash)
 		fmt.Printf("Master ReplID: %s\n", server.data["master_replid"])
 		fmt.Printf("Master Repl Offset: %s\n", server.data["master_repl_offset"])
 		fmt.Printf("Processed Bytes: %d\n", server.processedBytes)

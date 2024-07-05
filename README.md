@@ -32,3 +32,14 @@ Note: This section is for stages 2 and beyond.
    in `app/server.go`.
 1. Commit your changes and run `git push origin master` to submit your solution
    to CodeCrafters. Test output will be streamed to your terminal.
+
+# P.S.
+
+To Kill/Terminate process that Work On a Specific Port:
+
+```sh
+sudo lsof -i :<port>
+```
+```sh
+kill -9 <PID>
+```

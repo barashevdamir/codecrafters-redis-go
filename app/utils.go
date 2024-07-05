@@ -15,10 +15,28 @@ func readResponse(conn net.Conn) (string, error) {
 	return response, nil
 }
 
-func eventLoop(queue chan func()) {
+func eventLoop(queue chan func(), inspection chan []func()) {
+	var pendingCommands []func()
+
+	go func() {
+		for {
+			queue <- func() {}
+			<-queue
+		}
+	}()
+
 	for {
-		queue <- func() {}
-		<-queue
+		select {
+		case cmd := <-queue:
+			if cmd != nil {
+				pendingCommands = append(pendingCommands, cmd)
+				go func(cmd func()) {
+					cmd()
+					pendingCommands = pendingCommands[1:]
+				}(cmd)
+			}
+		case inspection <- pendingCommands:
+		}
 	}
 }
 
@@ -45,4 +63,24 @@ func sendCommand(conn net.Conn, command string, args []string) error {
 	}
 
 	return nil
+}
+
+func byteBulkStringLen(command string, args []string) int {
+	cmdArray := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n", len(args)+1, len(command), command)
+	for _, arg := range args {
+		cmdArray += fmt.Sprintf("$%d\r\n%s\r\n", len(arg), arg)
+	}
+	return len([]byte(cmdArray))
+}
+
+func printHosts() {
+	fmt.Println("Current state of hosts:")
+	for port, server := range hosts {
+		fmt.Printf("Port: %s\n", port)
+		fmt.Printf("Role: %s\n", server.data["role"])
+		fmt.Printf("Master ReplID: %s\n", server.data["master_replid"])
+		fmt.Printf("Master Repl Offset: %s\n", server.data["master_repl_offset"])
+		fmt.Printf("Processed Bytes: %d\n", server.processedBytes)
+		fmt.Println()
+	}
 }

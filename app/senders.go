@@ -7,6 +7,7 @@ import (
 )
 
 func sendPing(conn net.Conn) error {
+	fmt.Println("Sending PING")
 	_, err := conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
 	if err != nil {
 		return fmt.Errorf("failed to send PING: %v", err)
@@ -22,6 +23,7 @@ func sendPing(conn net.Conn) error {
 }
 
 func sendReplConf(conn net.Conn, args []string) error {
+	fmt.Println("Received REPLCONF response: with args:", args)
 	_, err := conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
 	if err != nil {
 		return fmt.Errorf("failed to send REPLCONF: %v", err)
@@ -34,7 +36,6 @@ func sendReplConf(conn net.Conn, args []string) error {
 }
 
 func sendPsync(conn net.Conn, args []string) error {
-	//_, err := conn.Write([]byte("*3\r\n$4\r\nPSYNC\r\n$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n$" + strconv.Itoa(len(args[1])) + "\r\n" + args[1] + "\r\n"))
 	_, err := conn.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"))
 	if err != nil {
 		return fmt.Errorf("failed to send PSYNC: %v", err)

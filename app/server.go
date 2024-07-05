@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CommandFunc тип функции для обработки команды
@@ -20,12 +21,15 @@ type Command struct {
 }
 
 type redisServer struct {
-	conn  net.Conn
-	data  map[string]string
-	stash map[string]string
+	conn           net.Conn
+	data           map[string]string
+	stash          map[string]string
+	processedBytes int
 }
 
-var hosts = map[string]redisServer{}
+var hosts = map[string]*redisServer{}
+
+var offset = 0
 
 var commands = map[string]Command{}
 
@@ -39,7 +43,8 @@ func main() {
 	registerCommands()
 
 	queue := make(chan func())
-	go eventLoop(queue)
+	inspection := make(chan []func())
+	go eventLoop(queue, inspection)
 
 	flag.StringVar(&port, "port", "6379", "port to listen on")
 	flag.StringVar(&replicaOf, "replicaof", "", "replica server")
@@ -51,9 +56,10 @@ func main() {
 			replicaHost := replicaHostPort[0]
 			replicaPort := replicaHostPort[1]
 			if _, exists := hosts[replicaPort]; !exists {
+
 				fmt.Println("Replica host not found in hosts, attempting to connect to master.")
 				go func() {
-					err := performHandshake(replicaHost, replicaPort)
+					err := performHandshake(replicaHost, replicaPort, queue)
 					if err != nil {
 						fmt.Println("Failed to perform handshake with master:", err.Error())
 						os.Exit(1)
@@ -68,9 +74,17 @@ func main() {
 		fmt.Println("Failed to create server:", err.Error())
 		os.Exit(1)
 	}
+	go func() {
+		for {
+			time.Sleep(time.Microsecond)
+			pending := <-inspection
+			fmt.Println("Pending commands: " + strconv.Itoa(len(pending)) + "\n")
+		}
+	}()
 }
 
 func createServer(port, replicaOf string, queue chan func()) error {
+
 	if _, exists := hosts[port]; exists {
 		fmt.Printf("Server on port %s already exists.\n", port)
 		return nil
@@ -86,16 +100,16 @@ func createServer(port, replicaOf string, queue chan func()) error {
 		if err != nil {
 			return fmt.Errorf("failed to accept connection: %v", err)
 		}
-		fmt.Printf("Accepted connection from %s\n", conn.RemoteAddr())
+		fmt.Printf("Accepted connection from %s\n", conn.LocalAddr())
 		if replicaOf != "" {
-			hosts[port] = redisServer{conn, map[string]string{
+			hosts[port] = &redisServer{conn, map[string]string{
 				"role":               "slave",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
-			}, map[string]string{}}
+			}, map[string]string{}, 0}
 			masterHost, masterPort := strings.Split(replicaOf, " ")[0], strings.Split(replicaOf, " ")[1]
 			go func() {
-				err = performHandshake(masterHost, masterPort)
+				err = performHandshake(masterHost, masterPort, queue)
 				if err != nil {
 					fmt.Println("Error during handshake:", err.Error())
 					return
@@ -103,11 +117,11 @@ func createServer(port, replicaOf string, queue chan func()) error {
 				fmt.Println("Handshake successful, continuing to accept requests.")
 			}()
 		} else {
-			hosts[port] = redisServer{conn, map[string]string{
+			hosts[port] = &redisServer{conn, map[string]string{
 				"role":               "master",
 				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 				"master_repl_offset": "0",
-			}, map[string]string{}}
+			}, map[string]string{}, 0}
 		}
 
 		go handleConnection(conn, queue)
@@ -128,10 +142,8 @@ func handleConnection(conn net.Conn, queue chan func()) {
 		}
 
 		handleArray(reader, conn, queue)
-
 	}
 }
-
 func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 	sizeStr, err := reader.ReadString('\n')
 	if err != nil {
@@ -144,11 +156,9 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		return
 	}
 
-	// Чтение команды
 	_, _ = reader.ReadString('\n')
 	command, _ := reader.ReadString('\n')
 	command = strings.TrimSpace(command)
-	// Чтение всех аргументов команды
 	var args []string
 	for i := 0; i < size-1; i++ {
 		_, _ = reader.ReadString('\n')
@@ -162,12 +172,15 @@ func handleArray(reader *bufio.Reader, conn net.Conn, queue chan func()) {
 		sendError(conn, "unknown command")
 		return
 	}
-	fmt.Println("Received command:", command, "with args:", args)
-	fmt.Println(ok)
-	cmd.Handler(conn, args)
+	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen(command, args), command)
+	offset += byteBulkStringLen(command, args)
+	fmt.Println("Executing command:", command)
+	queue <- func() {
+		go cmd.Handler(conn, args)
+	}
 }
 
-func performHandshake(masterHost, masterPort string) error {
+func performHandshake(masterHost, masterPort string, queue chan func()) error {
 	address := net.JoinHostPort(masterHost, masterPort)
 	fmt.Println("Connecting to master:", address)
 	conn, err := net.Dial("tcp", address)
@@ -175,6 +188,40 @@ func performHandshake(masterHost, masterPort string) error {
 		return fmt.Errorf("failed to connect to master: %v", err)
 	}
 
+	// Проверка и добавление мастера в карту хостов
+	if _, exists := hosts[masterPort]; !exists {
+		hosts[masterPort] = &redisServer{
+			conn: conn,
+			data: map[string]string{
+				"role":               "master",
+				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				"master_repl_offset": "0",
+			},
+			stash:          map[string]string{},
+			processedBytes: 0,
+		}
+		fmt.Printf("Added new master with listening-port %s\n", masterPort)
+	} else {
+		conn.Close()
+		conn = hosts[masterPort].conn
+	}
+
+	// Проверка и добавление слейва в карту хостов
+	if _, exists := hosts[port]; !exists {
+		hosts[port] = &redisServer{
+			conn: conn,
+			data: map[string]string{
+				"role":               "slave",
+				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				"master_repl_offset": "0",
+			},
+			stash:          map[string]string{},
+			processedBytes: 0,
+		}
+		fmt.Printf("Added new slave with listening-port %s\n", port)
+	}
+
+	// Отправляем команды для выполнения рукопожатия
 	err = sendPing(conn)
 	if err != nil {
 		return err
@@ -192,7 +239,8 @@ func performHandshake(masterHost, masterPort string) error {
 		return err
 	}
 
-	go handleConnection(conn, nil)
+	// Обработка соединения в отдельной горутине
+	go handleConnection(conn, queue)
 	if err != nil {
 		fmt.Println("Error handling connection:", err.Error())
 		return err

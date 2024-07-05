@@ -21,11 +21,29 @@ func registerCommands() {
 }
 
 func handlePing(conn net.Conn, args []string) {
-	conn.Write([]byte("+PONG\r\n"))
+	server, _ := hosts[port]
+	fmt.Println("handlePing called with args:", args)
+	if server.data["role"] == "slave" {
+		server.processedBytes += byteBulkStringLen("PING", args)
+		fmt.Println("Updated processedBytes for PING:", server.processedBytes)
+	}
+	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("PING", args), "PING")
+	offset += byteBulkStringLen("PING", args)
+	_, err := conn.Write([]byte("+PONG\r\n")) // Отправляем ответ на PING
+	if err != nil {
+		fmt.Println("Error sending PONG:", err)
+	}
 }
 
 func handleEcho(conn net.Conn, args []string) {
+	server, _ := hosts[port]
 	if len(args) > 0 {
+		if server.data["role"] == "slave" {
+			server.processedBytes += byteBulkStringLen("ECHO", args)
+			return
+		}
+		fmt.Printf("Adding to offset %d\n", byteBulkStringLen("ECHO", args))
+		offset += byteBulkStringLen("ECHO", args)
 		conn.Write([]byte("$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n"))
 	} else {
 		sendError(conn, "no message")
@@ -33,6 +51,8 @@ func handleEcho(conn net.Conn, args []string) {
 }
 
 func handleSet(conn net.Conn, args []string) {
+	server, _ := hosts[port]
+
 	if len(args) < 2 {
 		sendError(conn, "usage: SET key value [PX milliseconds]")
 		return
@@ -49,55 +69,93 @@ func handleSet(conn net.Conn, args []string) {
 			return
 		}
 	}
-	hosts[port].stash[key] = value
+	server.stash[key] = value
 
 	if expiration > 0 {
 		time.AfterFunc(time.Duration(expiration)*time.Millisecond, func() {
-			delete(hosts[port].stash, key)
+			delete(server.stash, key)
 		})
 	}
+	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("SET", args))
+	offset += byteBulkStringLen("SET", args)
+	if server.data["role"] == "slave" {
+		server.processedBytes += byteBulkStringLen("SET", args)
+		return
+	}
 	conn.Write([]byte("+OK\r\n"))
-	if hosts[port].data["role"] == "master" {
+	if server.data["role"] == "master" {
+
 		propagateCommand("SET", args, conn)
 	}
 }
 
 func handleGet(conn net.Conn, args []string) {
-
+	server, _ := hosts[port]
 	if len(args) > 0 {
-		_, ok := hosts[port].stash[args[0]]
+		_, ok := server.stash[args[0]]
 		if ok {
-			conn.Write([]byte("$" + strconv.Itoa(len(hosts[port].stash[args[0]])) + "\r\n" + hosts[port].stash[args[0]] + "\r\n"))
+			conn.Write([]byte("$" + strconv.Itoa(len(server.stash[args[0]])) + "\r\n" + server.stash[args[0]] + "\r\n"))
 		} else {
 			conn.Write([]byte("$-1\r\n"))
 		}
+	}
+	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("GET", args))
+	offset += byteBulkStringLen("GET", args)
+	if server.data["role"] == "slave" {
+		server.processedBytes += byteBulkStringLen("GET", args)
+		return
 	} else {
 		sendError(conn, "no message")
 	}
 }
 
 func handleInfo(conn net.Conn, args []string) {
+	server, _ := hosts[port]
+
 	var dataStr string
-	_data := hosts[port].data
+	_data := server.data
 	for key, val := range _data {
 		dataStr += "$" + strconv.Itoa(len(key+val)) + "\r\n" + key + ":" + val + "\r\n"
 	}
+
 	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
+	fmt.Printf("Adding to offset %d\n", byteBulkStringLen("INFO", args))
+	offset += byteBulkStringLen("INFO", args)
+	if server.data["role"] == "slave" {
+		server.processedBytes += byteBulkStringLen("INFO", args)
+		return
+	}
 }
 
 func handleReplConf(conn net.Conn, args []string) {
+	fmt.Println("handleReplConf called with args:", args)
 	if len(args) == 2 && args[0] == "listening-port" {
 		port := args[1]
 		if _, exists := hosts[port]; !exists {
-			hosts[port] = redisServer{conn, map[string]string{
-				"role":               "slave",
-				"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
-				"master_repl_offset": "0",
-			}, map[string]string{}}
+			hosts[port] = &redisServer{
+				conn: conn,
+				data: map[string]string{
+					"role":               "slave",
+					"master_replid":      "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+					"master_repl_offset": "0",
+				},
+				stash:          map[string]string{},
+				processedBytes: 0,
+			}
 			fmt.Printf("Added new host with listening-port %s\n", port)
 		}
 	}
-	conn.Write([]byte("+OK\r\n"))
+	if args[0] == "listening-port" || args[0] == "capa" {
+		conn.Write([]byte("+OK\r\n"))
+	}
+	if args[0] == "GETACK" {
+		printHosts()
+		server, _ := hosts[port]
+		response := fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$%d\r\n%d\r\n", len(strconv.Itoa(offset)), offset)
+		fmt.Println("Sending ACK response:", response)
+		conn.Write([]byte(response))
+		server.processedBytes = 0
+	}
 }
 
 func handlePsync(conn net.Conn, args []string) {
@@ -115,12 +173,10 @@ func sendRDB(conn net.Conn) error {
 		}
 	}
 
-	_, err = conn.Write([]byte("$" + strconv.Itoa(len(rdbBytes)) + "\r\n" + string(rdbBytes)))
+	_, err = conn.Write([]byte("$" + strconv.Itoa(len(rdbBytes)) + "\r\n"))
 	if err != nil {
-		return fmt.Errorf("failed to send RDB length: %v", err)
+		return fmt.Errorf("failed to send RDB content: %v", err)
 	}
-	if err != nil {
-		return fmt.Errorf("failed to send RDB contents: %v", err)
-	}
+
 	return nil
 }

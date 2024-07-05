@@ -23,15 +23,11 @@ func registerCommands() {
 func handlePing(conn net.Conn, args []string) {
 	server, _ := hosts[port]
 	fmt.Println("handlePing called with args:", args)
-	if server.data["role"] == "slave" {
-		server.processedBytes += byteBulkStringLen("PING", args)
-		fmt.Println("Updated processedBytes for PING:", server.processedBytes)
-	}
-	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("PING", args), "PING")
-	offset += byteBulkStringLen("PING", args)
-	_, err := conn.Write([]byte("+PONG\r\n")) // Отправляем ответ на PING
-	if err != nil {
-		fmt.Println("Error sending PONG:", err)
+	if server.data["role"] == "master" {
+		_, err := conn.Write([]byte("+PONG\r\n"))
+		if err != nil {
+			fmt.Println("Error sending PONG:", err)
+		}
 	}
 }
 
@@ -42,8 +38,6 @@ func handleEcho(conn net.Conn, args []string) {
 			server.processedBytes += byteBulkStringLen("ECHO", args)
 			return
 		}
-		fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("ECHO", args), "ECHO")
-		offset += byteBulkStringLen("ECHO", args)
 		conn.Write([]byte("$" + strconv.Itoa(len(args[0])) + "\r\n" + args[0] + "\r\n"))
 	} else {
 		sendError(conn, "no message")
@@ -76,8 +70,6 @@ func handleSet(conn net.Conn, args []string) {
 			delete(server.stash, key)
 		})
 	}
-	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("SET", args), "SET")
-	offset += byteBulkStringLen("SET", args)
 	if server.data["role"] == "slave" {
 		server.processedBytes += byteBulkStringLen("SET", args)
 		return
@@ -100,14 +92,7 @@ func handleGet(conn net.Conn, args []string) {
 			conn.Write([]byte("$-1\r\n"))
 		}
 	}
-	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("GET", args), "GET")
-	offset += byteBulkStringLen("GET", args)
-	if server.data["role"] == "slave" {
-		server.processedBytes += byteBulkStringLen("GET", args)
-		return
-	} else {
-		sendError(conn, "no message")
-	}
+
 }
 
 func handleInfo(conn net.Conn, args []string) {
@@ -120,12 +105,6 @@ func handleInfo(conn net.Conn, args []string) {
 	}
 
 	conn.Write([]byte("$" + strconv.Itoa(len(dataStr)) + "\r\n" + dataStr + "\r\n"))
-	fmt.Printf("Adding to offset %d after %s\n", byteBulkStringLen("INFO", args), "INFO")
-	offset += byteBulkStringLen("INFO", args)
-	if server.data["role"] == "slave" {
-		server.processedBytes += byteBulkStringLen("INFO", args)
-		return
-	}
 }
 
 func handleReplConf(conn net.Conn, args []string) {
